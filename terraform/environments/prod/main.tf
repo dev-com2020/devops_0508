@@ -11,7 +11,7 @@ terraform {
   # Stan zdalny — S3 + DynamoDB lock
   # Przed pierwszym uruchomieniem utwórz bucket i tabelę ręcznie (lub skryptem bootstrap)
   backend "s3" {
-    bucket         = "ZMIEŃ-NA-SWÓJ-BUCKET"   # <-- uzupełnij
+    bucket         = "mateusz-1939-2024-12344321"   # <-- uzupełnij
     key            = "prod/terraform.tfstate"
     region         = "eu-central-1"
     dynamodb_table = "terraform-lock"
