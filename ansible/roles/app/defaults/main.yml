@@ -1,0 +1,11 @@
+---
+# ansible/roles/app/defaults/main.yml
+
+node_exporter_version: "1.8.1"
+
+app_user: appuser
+app_dir: /opt/app
+app_service_name: myapp
+app_runtime: python     # python | node
+app_port: 8080
+app_start_cmd: "{{ app_dir }}/venv/bin/python {{ app_dir }}/main.py"

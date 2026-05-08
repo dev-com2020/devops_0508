@@ -1,0 +1,30 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["localhost:9093"]
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: node_app
+    static_configs:
+      - targets: ["{{ app_private_ip }}:9100"]
+    labels:
+      instance: app
+      env: prod
+
+  - job_name: node_monitoring
+    static_configs:
+      - targets: ["localhost:9100"]
+    labels:
+      instance: monitoring
+      env: prod

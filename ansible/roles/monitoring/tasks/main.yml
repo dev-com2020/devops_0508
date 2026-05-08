@@ -1,0 +1,194 @@
+---
+# ansible/roles/monitoring/tasks/main.yml
+
+- name: Aktualizuj apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Zainstaluj zależności
+  apt:
+    name: [curl, wget, apt-transport-https, software-properties-common]
+    state: present
+
+# ── Prometheus ───────────────────────────────────────────────────────────────
+- name: Utwórz użytkownika prometheus
+  user:
+    name: prometheus
+    shell: /bin/false
+    system: yes
+    create_home: no
+
+- name: Utwórz katalogi Prometheusa
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+  loop:
+    - /etc/prometheus
+    - /var/lib/prometheus
+
+- name: Pobierz Prometheus
+  get_url:
+    url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    dest: /tmp/prometheus.tar.gz
+
+- name: Rozpakuj Prometheus
+  unarchive:
+    src: /tmp/prometheus.tar.gz
+    dest: /tmp/
+    remote_src: yes
+
+- name: Skopiuj binarkę prometheus
+  copy:
+    src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/prometheus"
+    dest: /usr/local/bin/prometheus
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+    remote_src: yes
+
+- name: Skopiuj promtool
+  copy:
+    src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/promtool"
+    dest: /usr/local/bin/promtool
+    mode: '0755'
+    remote_src: yes
+
+- name: Wgraj konfigurację Prometheusa
+  template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    owner: prometheus
+    group: prometheus
+    mode: '0644'
+  notify: restart prometheus
+
+- name: Wgraj reguły alertów
+  template:
+    src: alert_rules.yml.j2
+    dest: /etc/prometheus/alert_rules.yml
+    owner: prometheus
+    group: prometheus
+    mode: '0644'
+  notify: restart prometheus
+
+- name: Utwórz unit systemd dla Prometheusa
+  copy:
+    dest: /etc/systemd/system/prometheus.service
+    content: |
+      [Unit]
+      Description=Prometheus
+      After=network.target
+
+      [Service]
+      User=prometheus
+      ExecStart=/usr/local/bin/prometheus \
+        --config.file=/etc/prometheus/prometheus.yml \
+        --storage.tsdb.path=/var/lib/prometheus \
+        --storage.tsdb.retention.time=15d \
+        --web.listen-address=0.0.0.0:9090
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: restart prometheus
+
+- name: Uruchom Prometheus
+  systemd:
+    name: prometheus
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+# ── Alertmanager ─────────────────────────────────────────────────────────────
+- name: Pobierz Alertmanager
+  get_url:
+    url: "https://github.com/prometheus/alertmanager/releases/download/v{{ alertmanager_version }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
+    dest: /tmp/alertmanager.tar.gz
+
+- name: Rozpakuj Alertmanager
+  unarchive:
+    src: /tmp/alertmanager.tar.gz
+    dest: /tmp/
+    remote_src: yes
+
+- name: Skopiuj binarkę alertmanager
+  copy:
+    src: "/tmp/alertmanager-{{ alertmanager_version }}.linux-amd64/alertmanager"
+    dest: /usr/local/bin/alertmanager
+    mode: '0755'
+    remote_src: yes
+
+- name: Utwórz katalog konfiguracji Alertmanagera
+  file:
+    path: /etc/alertmanager
+    state: directory
+    mode: '0755'
+
+- name: Wgraj konfigurację Alertmanagera
+  template:
+    src: alertmanager.yml.j2
+    dest: /etc/alertmanager/alertmanager.yml
+    mode: '0600'
+  notify: restart alertmanager
+
+- name: Utwórz unit systemd dla Alertmanagera
+  copy:
+    dest: /etc/systemd/system/alertmanager.service
+    content: |
+      [Unit]
+      Description=Alertmanager
+      After=network.target
+
+      [Service]
+      ExecStart=/usr/local/bin/alertmanager \
+        --config.file=/etc/alertmanager/alertmanager.yml \
+        --web.listen-address=0.0.0.0:9093
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: restart alertmanager
+
+- name: Uruchom Alertmanager
+  systemd:
+    name: alertmanager
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+# ── Grafana ───────────────────────────────────────────────────────────────────
+- name: Dodaj klucz GPG Grafany
+  apt_key:
+    url: https://packages.grafana.com/gpg.key
+    state: present
+
+- name: Dodaj repo Grafany
+  apt_repository:
+    repo: "deb https://packages.grafana.com/oss/deb stable main"
+    state: present
+    filename: grafana
+
+- name: Zainstaluj Grafanę
+  apt:
+    name: grafana
+    state: present
+    update_cache: yes
+
+- name: Wgraj konfigurację datasource (Prometheus)
+  template:
+    src: grafana_datasource.yml.j2
+    dest: /etc/grafana/provisioning/datasources/prometheus.yml
+    owner: grafana
+    group: grafana
+    mode: '0640'
+  notify: restart grafana
+
+- name: Uruchom Grafanę
+  systemd:
+    name: grafana-server
+    state: started
+    enabled: yes

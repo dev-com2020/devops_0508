@@ -1,0 +1,15 @@
+---
+# ansible/site.yml — główny playbook
+# Uruchamiany przez Jenkins po terraform apply
+
+- name: Konfiguracja instancji aplikacyjnej
+  hosts: app
+  become: true
+  roles:
+    - role: app
+
+- name: Konfiguracja monitoringu (Prometheus + Grafana)
+  hosts: monitoring
+  become: true
+  roles:
+    - role: monitoring

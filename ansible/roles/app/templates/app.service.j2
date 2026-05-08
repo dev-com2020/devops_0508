@@ -1,0 +1,22 @@
+[Unit]
+Description={{ app_service_name }} application
+After=network.target
+
+[Service]
+Type=simple
+User={{ app_user }}
+WorkingDirectory={{ app_dir }}
+ExecStart={{ app_start_cmd }}
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{ app_service_name }}
+
+# Bezpieczeństwo
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ app_dir }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,209 @@
+// jenkins/Jenkinsfile
+// Pipeline: lint → tf plan → (approval na main) → tf apply → ansible
+
+pipeline {
+    agent any
+
+    environment {
+        // Credentials ustawiane w Jenkins → Manage Jenkins → Credentials
+        AWS_ACCESS_KEY_ID     = credentials('aws-access-key-id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+        AWS_DEFAULT_REGION    = 'eu-central-1'
+
+        SLACK_WEBHOOK_URL     = credentials('slack-webhook-url')
+        GRAFANA_ADMIN_PASSWORD = credentials('grafana-admin-password')
+
+        TF_DIR  = 'terraform/environments/prod'
+        ANS_DIR = 'ansible'
+
+        // Ścieżka do klucza SSH na maszynie Jenkinsa
+        SSH_KEY_PATH = '/var/lib/jenkins/.ssh/aws-key.pem'
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    stages {
+
+        // ── 1. Lint & Validate ────────────────────────────────────────────
+        stage('Lint & Validate') {
+            steps {
+                echo '── Formatowanie Terraform ──'
+                sh 'terraform -chdir=${TF_DIR} fmt -check -recursive'
+
+                echo '── Walidacja Terraform ──'
+                sh '''
+                    terraform -chdir=${TF_DIR} init -backend=false -input=false
+                    terraform -chdir=${TF_DIR} validate
+                '''
+
+                echo '── Lint Ansible ──'
+                sh 'cd ${ANS_DIR} && ansible-lint site.yml || true'
+            }
+        }
+
+        // ── 2. Terraform Init (z backendem) ───────────────────────────────
+        stage('Terraform Init') {
+            steps {
+                sh '''
+                    terraform -chdir=${TF_DIR} init \
+                        -input=false \
+                        -reconfigure
+                '''
+            }
+        }
+
+        // ── 3. Terraform Plan ─────────────────────────────────────────────
+        stage('Terraform Plan') {
+            steps {
+                sh '''
+                    terraform -chdir=${TF_DIR} plan \
+                        -input=false \
+                        -out=tfplan \
+                        -var="key_name=${TF_VAR_key_name}"
+                '''
+            }
+            post {
+                always {
+                    // Zachowaj plan jako artefakt
+                    archiveArtifacts artifacts: "${TF_DIR}/tfplan", allowEmptyArchive: true
+                }
+            }
+        }
+
+        // ── 4. Approval (tylko branch main) ──────────────────────────────
+        stage('Approval') {
+            when {
+                branch 'main'
+            }
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    input message: 'Zatwierdzić terraform apply i ansible?',
+                          ok: 'Deploy',
+                          submitterParameter: 'APPROVER'
+                }
+                echo "Zatwierdził: ${APPROVER}"
+            }
+        }
+
+        // ── 5. Terraform Apply ────────────────────────────────────────────
+        stage('Terraform Apply') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh '''
+                    terraform -chdir=${TF_DIR} apply \
+                        -input=false \
+                        -auto-approve \
+                        tfplan
+                '''
+                // Eksportuj IP-ki jako zmienne środowiskowe
+                script {
+                    env.APP_IP = sh(
+                        script: "terraform -chdir=${TF_DIR} output -raw app_public_ip",
+                        returnStdout: true
+                    ).trim()
+                    env.MONITORING_IP = sh(
+                        script: "terraform -chdir=${TF_DIR} output -raw monitoring_public_ip",
+                        returnStdout: true
+                    ).trim()
+                }
+                echo "App IP: ${APP_IP}"
+                echo "Monitoring IP: ${MONITORING_IP}"
+            }
+        }
+
+        // ── 6. Czekaj aż EC2 odpowie na SSH ──────────────────────────────
+        stage('Wait for SSH') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh '''
+                    for ip in ${APP_IP} ${MONITORING_IP}; do
+                        echo "Czekam na SSH: ${ip}"
+                        for i in $(seq 1 24); do
+                            if ssh -o StrictHostKeyChecking=no \
+                                   -o ConnectTimeout=5 \
+                                   -i ${SSH_KEY_PATH} \
+                                   ubuntu@${ip} "echo ready" 2>/dev/null; then
+                                echo "${ip} gotowy"
+                                break
+                            fi
+                            echo "Próba ${i}/24..."
+                            sleep 10
+                        done
+                    done
+                '''
+            }
+        }
+
+        // ── 7. Ansible ────────────────────────────────────────────────────
+        stage('Ansible') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh '''
+                    # Podmień {{ key_path }} w inventory wygenerowanym przez Terraform
+                    sed -i "s|{{ key_path }}|${SSH_KEY_PATH}|g" \
+                        ${ANS_DIR}/inventory/hosts.ini
+
+                    cd ${ANS_DIR} && \
+                    ANSIBLE_HOST_KEY_CHECKING=False \
+                    ansible-playbook site.yml \
+                        --private-key=${SSH_KEY_PATH} \
+                        --extra-vars "slack_webhook_url=${SLACK_WEBHOOK_URL} grafana_admin_password=${GRAFANA_ADMIN_PASSWORD}" \
+                        -v
+                '''
+            }
+        }
+
+        // ── 8. Smoke test ─────────────────────────────────────────────────
+        stage('Smoke Test') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh '''
+                    echo "── Sprawdzam aplikację ──"
+                    sleep 5
+                    curl --fail --max-time 10 http://${APP_IP}:8080/health \
+                        || (echo "Smoke test FAILED" && exit 1)
+
+                    echo "── Sprawdzam Grafanę ──"
+                    curl --fail --max-time 10 http://${MONITORING_IP}:3000/api/health \
+                        || (echo "Grafana nie odpowiada" && exit 1)
+
+                    echo "Smoke testy OK"
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline zakończony sukcesem."
+            sh '''
+                curl -s -X POST ${SLACK_WEBHOOK_URL} \
+                    -H "Content-Type: application/json" \
+                    -d "{\"text\": \"✅ Deploy *${JOB_NAME}* #${BUILD_NUMBER} zakończony sukcesem. App: http://${APP_IP}:8080 | Grafana: http://${MONITORING_IP}:3000\"}"
+            '''
+        }
+        failure {
+            echo "Pipeline FAILED."
+            sh '''
+                curl -s -X POST ${SLACK_WEBHOOK_URL} \
+                    -H "Content-Type: application/json" \
+                    -d "{\"text\": \"🚨 Deploy *${JOB_NAME}* #${BUILD_NUMBER} FAILED. Sprawdź logi: ${BUILD_URL}\"}"
+            '''
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

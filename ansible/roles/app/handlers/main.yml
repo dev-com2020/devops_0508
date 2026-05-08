@@ -1,0 +1,11 @@
+---
+- name: restart app
+  systemd:
+    name: "{{ app_service_name }}"
+    state: restarted
+    daemon_reload: yes
+
+- name: restart node_exporter
+  systemd:
+    name: node_exporter
+    state: restarted

@@ -1,0 +1,12 @@
+---
+prometheus_version: "2.51.2"
+alertmanager_version: "0.27.0"
+
+# Adresy IP scrapowanych hostów — wstrzykiwane z inventory przez Terraform
+app_private_ip: "{{ hostvars['app']['private_ip'] | default('127.0.0.1') }}"
+
+# Slack webhook — ustaw w Jenkins credentials lub ansible-vault
+slack_webhook_url: "{{ lookup('env', 'SLACK_WEBHOOK_URL') }}"
+slack_channel: "#alerts"
+
+grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') | default('changeme') }}"
