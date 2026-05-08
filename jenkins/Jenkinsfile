@@ -187,25 +187,33 @@ done
         }
     }
 
-    post {
-        success {
-            echo "Pipeline zakończony sukcesem."
-            sh '''
-                curl -s -X POST ${SLACK_WEBHOOK_URL} \
+   post {
+    failure {
+        echo "Pipeline FAILED."
+        sh '''
+            if [ -n "${SLACK_WEBHOOK_URL}" ]; then
+                curl -s -X POST "${SLACK_WEBHOOK_URL}" \
                     -H "Content-Type: application/json" \
-                    -d "{\"text\": \"✅ Deploy *${JOB_NAME}* #${BUILD_NUMBER} zakończony sukcesem. App: http://${APP_IP}:8080 | Grafana: http://${MONITORING_IP}:3000\"}"
-            '''
-        }
-        failure {
-            echo "Pipeline FAILED."
-            sh '''
-                curl -s -X POST ${SLACK_WEBHOOK_URL} \
-                    -H "Content-Type: application/json" \
-                    -d "{\"text\": \"🚨 Deploy *${JOB_NAME}* #${BUILD_NUMBER} FAILED. Sprawdź logi: ${BUILD_URL}\"}"
-            '''
-        }
-        always {
-            cleanWs()
-        }
+                    -d "{\"text\": \"🚨 Deploy *${JOB_NAME}* #${BUILD_NUMBER} FAILED. Logi: ${BUILD_URL}\"}" \
+                    || echo "Slack notification failed, kontynuuję"
+            else
+                echo "SLACK_WEBHOOK_URL nie ustawiony, pomijam"
+            fi
+        '''
     }
+    success {
+        echo "Pipeline zakończony sukcesem."
+        sh '''
+            if [ -n "${SLACK_WEBHOOK_URL}" ]; then
+                curl -s -X POST "${SLACK_WEBHOOK_URL}" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"text\": \"✅ Deploy *${JOB_NAME}* #${BUILD_NUMBER} OK.\"}" \
+                    || echo "Slack notification failed, kontynuuję"
+            fi
+        '''
+    }
+    always {
+        cleanWs()
+    }
+}
 }
