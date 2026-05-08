@@ -41,7 +41,7 @@ resource "aws_route_table_association" "public" {
 # Security Group: instancja aplikacyjna
 resource "aws_security_group" "app" {
   name        = "${var.project}-sg-app"
-  description = "App EC2 — SSH + HTTP app port"
+  description = "App_EC2_SSH + HTTP_app_port"
   vpc_id      = aws_vpc.main.id
 
   ingress {
