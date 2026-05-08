@@ -6,12 +6,14 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
   }
 
-  # Stan zdalny — S3 + DynamoDB lock
-  # Przed pierwszym uruchomieniem utwórz bucket i tabelę ręcznie (lub skryptem bootstrap)
   backend "s3" {
-    bucket         = "mateusz-1939-2024-12344321"   # <-- uzupełnij
+    bucket         = "mateusz-1939-2024-12344321"
     key            = "prod/terraform.tfstate"
     region         = "eu-central-1"
     dynamodb_table = "terraform-lock"
@@ -35,7 +37,7 @@ locals {
   }
 }
 
-# ── VPC ─────────────────────────────────────────────────────────────────────
+# ── VPC ──────────────────────────────────────────────────────────────────────
 module "vpc" {
   source = "../../modules/vpc"
 
@@ -49,7 +51,7 @@ module "vpc" {
   tags                = local.common_tags
 }
 
-# ── EC2 App ──────────────────────────────────────────────────────────────────
+# ── EC2 App ───────────────────────────────────────────────────────────────────
 module "app" {
   source = "../../modules/ec2"
 
@@ -79,15 +81,15 @@ resource "local_file" "ansible_inventory" {
   file_permission = "0644"
 
   content = <<-INI
-    [app]
-    ${module.app.public_ip} ansible_user=ubuntu ansible_ssh_private_key_file={{ key_path }}
+[app]
+${module.app.public_ip} ansible_user=ubuntu ansible_ssh_private_key_file={{ key_path }}
 
-    [monitoring]
-    ${module.monitoring.public_ip} ansible_user=ubuntu ansible_ssh_private_key_file={{ key_path }}
+[monitoring]
+${module.monitoring.public_ip} ansible_user=ubuntu ansible_ssh_private_key_file={{ key_path }}
 
-    [all:vars]
-    ansible_python_interpreter=/usr/bin/python3
-    app_private_ip=${module.app.private_ip}
-    monitoring_private_ip=${module.monitoring.private_ip}
-  INI
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+app_private_ip=${module.app.private_ip}
+monitoring_private_ip=${module.monitoring.private_ip}
+INI
 }
