@@ -194,16 +194,14 @@ done
    post {
     failure {
         echo "Pipeline FAILED."
-        sh '''
-            if [ -n "${SLACK_WEBHOOK_URL}" ]; then
-                curl -s -X POST "${SLACK_WEBHOOK_URL}" \
-                    -H "Content-Type: application/json" \
-                    -d "{\"text\": \"🚨 Deploy *${JOB_NAME}* #${BUILD_NUMBER} FAILED. Logi: ${BUILD_URL}\"}" \
-                    || echo "Slack notification failed, kontynuuję"
-            else
-                echo "SLACK_WEBHOOK_URL nie ustawiony, pomijam"
-            fi
-        '''
+sh '''
+    if [ -n "${SLACK_WEBHOOK_URL}" ]; then
+        curl -s -X POST "${SLACK_WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"🚨 Deploy *${JOB_NAME}* #${BUILD_NUMBER} FAILED.\"}" \
+            || true
+    fi
+'''
     }
     success {
         echo "Pipeline zakończony sukcesem."
