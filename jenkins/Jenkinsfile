@@ -75,9 +75,7 @@ sh '''
 
         // ── 4. Approval (tylko branch main) ──────────────────────────────
         stage('Approval') {
-            when {
-                branch 'main'
-            }
+            when { anyOf { branch 'main'; branch 'origin/main' } }
             steps {
                 timeout(time: 15, unit: 'MINUTES') {
                     input message: 'Zatwierdzić terraform apply i ansible?',
@@ -118,9 +116,7 @@ sh '''
 
         // ── 6. Czekaj aż EC2 odpowie na SSH ──────────────────────────────
         stage('Wait for SSH') {
-            when {
-                branch 'main'
-            }
+            when { anyOf { branch 'main'; branch 'origin/main' } }
             steps {
                 sh '''
                     # Wait for SSH — z exit 1 po timeout
@@ -150,9 +146,7 @@ done
 
         // ── 7. Ansible ────────────────────────────────────────────────────
         stage('Ansible') {
-            when {
-                branch 'main'
-            }
+            when { anyOf { branch 'main'; branch 'origin/main' } }
             steps {
                 sh '''
                     # Podmień {{ key_path }} w inventory wygenerowanym przez Terraform
@@ -171,9 +165,7 @@ done
 
         // ── 8. Smoke test ─────────────────────────────────────────────────
         stage('Smoke Test') {
-            when {
-                branch 'main'
-            }
+            when { anyOf { branch 'main'; branch 'origin/main' } }
             steps {
                 sh '''
                     echo "── Sprawdzam aplikację ──"
