@@ -14,6 +14,8 @@ pipeline {
     TF_DIR                 = 'terraform/environments/prod'
     ANS_DIR                = 'ansible'
     SSH_KEY_PATH           = '/var/lib/jenkins/.ssh/aws-key.pem'
+    TF_VAR_jenkins_ip_cidr = credentials('tf-jenkins-ip-cidr')
+    TF_VAR_admin_ip_cidr   = credentials('tf-admin-ip-cidr')
 }
     options {
         timestamps()
