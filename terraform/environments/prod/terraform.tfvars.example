@@ -4,8 +4,8 @@ aws_region = "eu-central-1"
 project    = "myapp"
 key_name   = "moja-klucz-aws"     # nazwa key pair widoczna w konsoli AWS
 
-jenkins_ip_cidr = "1.2.3.4/32"   # IP Twojego VPS z Jenkinsem
-admin_ip_cidr   = "5.6.7.8/32"   # Twoje IP (Grafana, Prometheus)
+jenkins_ip_cidr = "98.71.72.181/32"   # IP Twojego VPS z Jenkinsem
+admin_ip_cidr   = "20.238.64.3/32"
 app_port        = 8080
 
 app_instance_type        = "t3.small"
