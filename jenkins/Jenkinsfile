@@ -191,28 +191,12 @@ done
         }
     }
 
-   post {
-    failure {
-        echo "Pipeline FAILED."
-sh '''
-    if [ -n "${SLACK_WEBHOOK_URL}" ]; then
-        curl -s -X POST "${SLACK_WEBHOOK_URL}" \
-            -H "Content-Type: application/json" \
-            -d "{\"text\": \"🚨 Deploy *${JOB_NAME}* #${BUILD_NUMBER} FAILED.\"}" \
-            || true
-    fi
-'''
-    }
+  post {
     success {
-        echo "Pipeline zakończony sukcesem."
-        sh '''
-            if [ -n "${SLACK_WEBHOOK_URL}" ]; then
-                curl -s -X POST "${SLACK_WEBHOOK_URL}" \
-                    -H "Content-Type: application/json" \
-                    -d "{\"text\": \"✅ Deploy *${JOB_NAME}* #${BUILD_NUMBER} OK.\"}" \
-                    || echo "Slack notification failed, kontynuuję"
-            fi
-        '''
+        echo "✅ Pipeline zakończony sukcesem."
+    }
+    failure {
+        echo "🚨 Pipeline FAILED."
     }
     always {
         cleanWs()
