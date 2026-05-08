@@ -1,22 +1,23 @@
 // jenkins/Jenkinsfile
-// Pipeline: lint → tf plan → (approval na main) → tf apply → ansible
+// Pipeline: lint → tf plan → approval → tf apply → ansible
 
 pipeline {
     agent any
 
     environment {
-    AWS_ACCESS_KEY_ID      = credentials('aws-access-key-id')
-    AWS_SECRET_ACCESS_KEY  = credentials('aws-secret-access-key')
-    AWS_DEFAULT_REGION     = 'eu-central-1'
-    SLACK_WEBHOOK_URL      = credentials('slack-webhook-url')
-    GRAFANA_ADMIN_PASSWORD = credentials('grafana-admin-password')
-    TF_VAR_key_name        = credentials('tf-key-name') 
-    TF_DIR                 = 'terraform/environments/prod'
-    ANS_DIR                = 'ansible'
-    SSH_KEY_PATH           = '/var/lib/jenkins/.ssh/aws-key.pem'
-    TF_VAR_jenkins_ip_cidr = credentials('tf-jenkins-ip-cidr')
-    TF_VAR_admin_ip_cidr   = credentials('tf-admin-ip-cidr')
-}
+        AWS_ACCESS_KEY_ID      = credentials('aws-access-key-id')
+        AWS_SECRET_ACCESS_KEY  = credentials('aws-secret-access-key')
+        AWS_DEFAULT_REGION     = 'eu-central-1'
+        SLACK_WEBHOOK_URL      = credentials('slack-webhook-url')
+        GRAFANA_ADMIN_PASSWORD = credentials('grafana-admin-password')
+        TF_VAR_key_name        = credentials('tf-key-name')
+        TF_DIR                 = 'terraform/environments/prod'
+        ANS_DIR                = 'ansible'
+        SSH_KEY_PATH           = '/var/lib/jenkins/.ssh/aws-key.pem'
+        TF_VAR_jenkins_ip_cidr = credentials('tf-jenkins-ip-cidr')
+        TF_VAR_admin_ip_cidr   = credentials('tf-admin-ip-cidr')
+    }
+
     options {
         timestamps()
         timeout(time: 30, unit: 'MINUTES')
@@ -42,7 +43,7 @@ pipeline {
             }
         }
 
-        // ── 2. Terraform Init (z backendem) ───────────────────────────────
+        // ── 2. Terraform Init ─────────────────────────────────────────────
         stage('Terraform Init') {
             steps {
                 sh '''
@@ -56,26 +57,24 @@ pipeline {
         // ── 3. Terraform Plan ─────────────────────────────────────────────
         stage('Terraform Plan') {
             steps {
-sh '''
-    terraform -chdir=${TF_DIR} plan \
-        -input=false \
-        -out=tfplan \
-        -var="key_name=${TF_VAR_key_name}" \
-        -var="jenkins_ip_cidr=${TF_VAR_jenkins_ip_cidr}" \
-        -var="admin_ip_cidr=${TF_VAR_admin_ip_cidr}"
-'''
+                sh '''
+                    terraform -chdir=${TF_DIR} plan \
+                        -input=false \
+                        -out=tfplan \
+                        -var="key_name=${TF_VAR_key_name}" \
+                        -var="jenkins_ip_cidr=${TF_VAR_jenkins_ip_cidr}" \
+                        -var="admin_ip_cidr=${TF_VAR_admin_ip_cidr}"
+                '''
             }
             post {
                 always {
-                    // Zachowaj plan jako artefakt
                     archiveArtifacts artifacts: "${TF_DIR}/tfplan", allowEmptyArchive: true
                 }
             }
         }
 
-        // ── 4. Approval (tylko branch main) ──────────────────────────────
+        // ── 4. Approval ───────────────────────────────────────────────────
         stage('Approval') {
-            when { anyOf { branch 'main'; branch 'origin/main' } }
             steps {
                 timeout(time: 15, unit: 'MINUTES') {
                     input message: 'Zatwierdzić terraform apply i ansible?',
@@ -88,9 +87,6 @@ sh '''
 
         // ── 5. Terraform Apply ────────────────────────────────────────────
         stage('Terraform Apply') {
-            when {
-                branch 'main'
-            }
             steps {
                 sh '''
                     terraform -chdir=${TF_DIR} apply \
@@ -98,7 +94,6 @@ sh '''
                         -auto-approve \
                         tfplan
                 '''
-                // Eksportuj IP-ki jako zmienne środowiskowe
                 script {
                     env.APP_IP = sh(
                         script: "terraform -chdir=${TF_DIR} output -raw app_public_ip",
@@ -116,40 +111,36 @@ sh '''
 
         // ── 6. Czekaj aż EC2 odpowie na SSH ──────────────────────────────
         stage('Wait for SSH') {
-            when { anyOf { branch 'main'; branch 'origin/main' } }
             steps {
                 sh '''
-                    # Wait for SSH — z exit 1 po timeout
-for ip in ${APP_IP} ${MONITORING_IP}; do
-    echo "Czekam na SSH: ${ip}"
-    connected=false
-    for i in $(seq 1 24); do
-        if ssh -o StrictHostKeyChecking=no \
-               -o ConnectTimeout=5 \
-               -i ${SSH_KEY_PATH} \
-               ubuntu@${ip} "echo ready" 2>/dev/null; then
-            echo "${ip} gotowy"
-            connected=true
-            break
-        fi
-        echo "Próba ${i}/24..."
-        sleep 10
-    done
-    if [ "$connected" = false ]; then
-        echo "TIMEOUT: ${ip} nie odpowiedział w ciągu 4 minut"
-        exit 1
-    fi
-done
+                    for ip in ${APP_IP} ${MONITORING_IP}; do
+                        echo "Czekam na SSH: ${ip}"
+                        connected=false
+                        for i in $(seq 1 24); do
+                            if ssh -o StrictHostKeyChecking=no \
+                                   -o ConnectTimeout=5 \
+                                   -i ${SSH_KEY_PATH} \
+                                   ubuntu@${ip} "echo ready" 2>/dev/null; then
+                                echo "${ip} gotowy"
+                                connected=true
+                                break
+                            fi
+                            echo "Próba ${i}/24..."
+                            sleep 10
+                        done
+                        if [ "$connected" = false ]; then
+                            echo "TIMEOUT: ${ip} nie odpowiedział w ciągu 4 minut"
+                            exit 1
+                        fi
+                    done
                 '''
             }
         }
 
         // ── 7. Ansible ────────────────────────────────────────────────────
         stage('Ansible') {
-            when { anyOf { branch 'main'; branch 'origin/main' } }
             steps {
                 sh '''
-                    # Podmień {{ key_path }} w inventory wygenerowanym przez Terraform
                     sed -i "s|{{ key_path }}|${SSH_KEY_PATH}|g" \
                         ${ANS_DIR}/inventory/hosts.ini
 
@@ -163,9 +154,8 @@ done
             }
         }
 
-        // ── 8. Smoke test ─────────────────────────────────────────────────
+        // ── 8. Smoke Test ─────────────────────────────────────────────────
         stage('Smoke Test') {
-            when { anyOf { branch 'main'; branch 'origin/main' } }
             steps {
                 sh '''
                     echo "── Sprawdzam aplikację ──"
@@ -183,15 +173,15 @@ done
         }
     }
 
-  post {
-    success {
-        echo "✅ Pipeline zakończony sukcesem."
+    post {
+        success {
+            echo "✅ Pipeline zakończony sukcesem."
+        }
+        failure {
+            echo "🚨 Pipeline FAILED."
+        }
+        always {
+            cleanWs()
+        }
     }
-    failure {
-        echo "🚨 Pipeline FAILED."
-    }
-    always {
-        cleanWs()
-    }
-}
 }
