@@ -74,16 +74,7 @@ pipeline {
         }
 
         // ── 4. Approval ───────────────────────────────────────────────────
-        stage('Approval') {
-            steps {
-                timeout(time: 15, unit: 'MINUTES') {
-                    input message: 'Zatwierdzić terraform apply i ansible?',
-                          ok: 'Deploy',
-                          submitterParameter: 'APPROVER'
-                }
-                echo "Zatwierdził: ${APPROVER}"
-            }
-        }
+
 
         // ── 5. Terraform Apply ────────────────────────────────────────────
         stage('Terraform Apply') {
