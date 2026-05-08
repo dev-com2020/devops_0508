@@ -54,12 +54,14 @@ pipeline {
         // ── 3. Terraform Plan ─────────────────────────────────────────────
         stage('Terraform Plan') {
             steps {
-                sh '''
-                    terraform -chdir=${TF_DIR} plan \
-                        -input=false \
-                        -out=tfplan \
-                        -var="key_name=${TF_VAR_key_name}"
-                '''
+sh '''
+    terraform -chdir=${TF_DIR} plan \
+        -input=false \
+        -out=tfplan \
+        -var="key_name=${TF_VAR_key_name}" \
+        -var="jenkins_ip_cidr=${TF_VAR_jenkins_ip_cidr}" \
+        -var="admin_ip_cidr=${TF_VAR_admin_ip_cidr}"
+'''
             }
             post {
                 always {
